@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 VERSION = "1.0.0"
 
 CONFIG_PATH = "/etc/mojatools-agent/agent.json"
-TOKEN_PATH = "/etc/mojatools-agent/token"
+TOKEN_PATH = "/etc/mojatools-agent/token"  # nosec B105 - file path, not a credential
 STATE_DIR = "/var/lib/mojatools-agent"
 STATE_PATH = os.path.join(STATE_DIR, "state.json")
 LOCK_PATH = os.path.join(STATE_DIR, "agent.lock")
@@ -72,6 +72,8 @@ def save_json_atomic(path, data, mode=0o640):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
+        f.flush()
+        os.fsync(f.fileno())
     os.chmod(tmp, mode)
     os.replace(tmp, path)
 
@@ -97,7 +99,7 @@ def http_post(server, path, payload, token=None):
         headers["X-AGENT-TOKEN"] = token
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     ctx = ssl.create_default_context()  # certificate verification ON
-    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=ctx) as resp:
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=ctx) as resp:  # nosec B310 - scheme restricted to https:// above, cert verification on
         raw = resp.read(MAX_BODY_BYTES + 1)
         if len(raw) > MAX_BODY_BYTES:
             raise ValueError("response too large")
@@ -126,7 +128,9 @@ def post_with_retries(server, path, payload, token=None):
 def _parse_cpu_times(line):
     """'cpu  user nice system idle iowait ...' -> (total_jiffies, idle_jiffies)."""
     vals = [int(x) for x in line.split()[1:]]
-    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    if len(vals) < 5:
+        raise ValueError("malformed /proc/stat cpu line: fewer than 5 fields")
+    idle = vals[3] + vals[4]
     return sum(vals), idle
 
 
@@ -225,6 +229,7 @@ def collect_docker_containers(socket_path="/var/run/docker.sock", timeout=5):
     """Container name + status only (no image/env/labels). None if unavailable."""
     if not os.path.exists(socket_path):
         return None
+    conn = None
     try:
         conn = _UnixHTTPConnection(socket_path, timeout)
         conn.request("GET", "/containers/json")
@@ -236,6 +241,9 @@ def collect_docker_containers(socket_path="/var/run/docker.sock", timeout=5):
                  "status": str(c.get("State", "unknown"))[:32]} for c in data][:200]
     except Exception:
         return None
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def collect_metrics(proc_root="/proc", docker_socket="/var/run/docker.sock"):
@@ -290,7 +298,8 @@ def validate_server_config(data):
                 if k in thresholds:
                     entry["thresholds"][k] = float(thresholds[k])
             ports = c.get("expected_ports") or []
-            if not all(isinstance(p, int) and 1 <= p <= 65535 for p in ports):
+            if not all(isinstance(p, int) and not isinstance(p, bool)
+                       and 1 <= p <= 65535 for p in ports):
                 raise ValueError("server config: expected_ports must be valid ports")
             entry["expected_ports"] = sorted(set(ports))[:100]
             names = c.get("expected_containers") or []
@@ -322,7 +331,7 @@ def should_push(state, interval_s, now=None):
         return True
     try:
         last_dt = datetime.fromisoformat(last)
-    except ValueError:
+    except (ValueError, TypeError):
         return True
     if last_dt.tzinfo is None and now.tzinfo is not None:
         last_dt = last_dt.replace(tzinfo=timezone.utc)
@@ -349,7 +358,11 @@ def cmd_run():
     payload = {"hostname": cfg.get("hostname") or socket.gethostname(),
                "agent_version": VERSION}
     if effective_mode(server_cfg) == "full":
-        payload["metrics"] = collect_metrics()
+        try:
+            payload["metrics"] = collect_metrics()
+        except Exception as e:
+            # operational error: liveness is still proven without metrics
+            log("metrics collection failed, pushing light: %s" % e)
     try:
         _, response = post_with_retries(cfg["server_url"], "/agent/v1/push",
                                         payload, token=read_token())
@@ -373,18 +386,25 @@ def cmd_enroll(server, enroll_token, hostname):
     if not HOSTNAME_RE.match(hostname or ""):
         log("invalid hostname")
         sys.exit(1)
-    _, data = http_post(server, "/agent/v1/enroll",
-                        {"enrollment_token": enroll_token, "hostname": hostname,
-                         "agent_version": VERSION})
-    os.makedirs(STATE_DIR, exist_ok=True)
-    save_json_atomic(CONFIG_PATH, {"server_url": server.rstrip("/"),
-                                   "agent_id": data["agent_id"],
-                                   "hostname": hostname})
-    tmp = TOKEN_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(data["agent_token"] + "\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, TOKEN_PATH)
+    try:
+        _, data = http_post(server, "/agent/v1/enroll",
+                            {"enrollment_token": enroll_token, "hostname": hostname,
+                             "agent_version": VERSION})
+        os.makedirs(STATE_DIR, exist_ok=True)
+        save_json_atomic(CONFIG_PATH, {"server_url": server.rstrip("/"),
+                                       "agent_id": data["agent_id"],
+                                       "hostname": hostname})
+        tmp = TOKEN_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(data["agent_token"] + "\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, TOKEN_PATH)
+    except urllib.error.HTTPError as e:
+        log(f"enrollment failed: HTTP {e.code} (token invalid or expired?)")
+        sys.exit(1)
+    except Exception as e:
+        log(f"enrollment failed: {e}")
+        sys.exit(1)
     log(f"enrolled as agent {data['agent_id']} on {server}")
     sys.exit(0)
 

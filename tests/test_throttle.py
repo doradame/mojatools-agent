@@ -24,7 +24,8 @@ class ThrottleTest(unittest.TestCase):
     def test_corrupt_timestamp_pushes(self):
         self.assertTrue(agent.should_push({"last_push_at": "garbage"}, 300))
 
-    # known minor: non-string last_push_at raises TypeError (tracked for a future fix)
+    def test_non_string_timestamp_pushes(self):
+        self.assertTrue(agent.should_push({"last_push_at": 12345}, 300))
 
 
 if __name__ == "__main__":

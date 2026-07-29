@@ -94,8 +94,9 @@ if [ "$ALREADY_ENROLLED" = "1" ]; then
 else
     HOSTNAME="$(hostname)"
     echo "==> enrolling $HOSTNAME on $SERVER"
+    # shellcheck disable=SC2016
     su -s /bin/sh "$AGENT_USER" -c \
-        'exec python3 /opt/mojatools-agent/mojatools_agent.py enroll --server "$1" --enroll-token "$2" --hostname "$3"' \
+        'exec /usr/bin/python3 /opt/mojatools-agent/mojatools_agent.py enroll --server "$1" --enroll-token "$2" --hostname "$3"' \
         sh "$SERVER" "$ENROLL_TOKEN" "$HOSTNAME"
     chmod 0640 "$CONFIG_DIR/agent.json"
     chown root:"$AGENT_USER" "$CONFIG_DIR/agent.json"

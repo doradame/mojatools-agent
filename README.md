@@ -32,7 +32,7 @@ The agent is designed to be small enough to audit in one sitting:
 The mojatools admin panel (**Agents → Install**) generates a one-liner for your host, with the enrollment token and the expected SHA-256 of the pinned agent release already filled in:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojatools/mojatools-agent/main/install.sh | sudo sh -s -- \
+curl -fsSL https://raw.githubusercontent.com/mojatools/mojatools-agent/v1.0.0/install.sh | sudo sh -s -- \
   --server https://api.mojalab.com \
   --enroll-token <ONE_TIME_TOKEN> \
   --expected-sha256 <SHA256_FROM_PANEL>
@@ -46,6 +46,8 @@ The installer:
 4. Installs and starts a hardened systemd timer.
 
 `--enroll-token` is required only on first install. On re-runs against an already-enrolled host (upgrade mode) it is optional — the existing enrollment is preserved.
+
+`--agent-url URL` overrides the download URL of the agent file (used by the panel one-liner; defaults to the pinned GitHub release).
 
 Requirements: Linux with systemd, Python 3.8+, curl, and root for the install step only.
 
@@ -131,7 +133,8 @@ Then revoke the agent in the mojatools admin panel so its token can no longer pu
 3. Tag the release: `git tag vX.Y.Z && git push --tags`.
 4. Compute checksums: `sha256sum mojatools_agent.py install.sh > SHA256SUMS`.
 5. Publish the GitHub release (attach `SHA256SUMS`).
-6. On the mojatools server, update `AGENT_INSTALLER_URL`, `AGENT_EXPECTED_SHA256`, and `AGENT_VERSION_LATEST` so the panel one-liner pins the new release.
+6. Bump the installer tag pinned in the README one-liner and in the server-side `AGENT_INSTALLER_URL` config at every release.
+7. On the mojatools server, update `AGENT_INSTALLER_URL`, `AGENT_EXPECTED_SHA256`, and `AGENT_VERSION_LATEST` so the panel one-liner pins the new release.
 
 ## License
 
