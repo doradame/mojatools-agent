@@ -1,5 +1,7 @@
 # mojatools-agent
 
+[![ci](https://github.com/mojatools/mojatools-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mojatools/mojatools-agent/actions/workflows/ci.yml)
+
 The inside-out liveness and metrics agent for the [mojatools](https://api.mojalab.com) monitoring platform.
 
 Traditional monitoring probes your servers from the outside. That doesn't work for hosts behind a firewall or NAT. This agent runs **on** the monitored host and pushes a small heartbeat (plus optional metrics) **out** to your mojatools server over HTTPS — no inbound ports, no VPN, no firewall holes.
@@ -43,6 +45,8 @@ The installer:
 3. Enrolls the host against your server (one-time token).
 4. Installs and starts a hardened systemd timer.
 
+`--enroll-token` is required only on first install. On re-runs against an already-enrolled host (upgrade mode) it is optional — the existing enrollment is preserved.
+
 Requirements: Linux with systemd, Python 3.8+, curl, and root for the install step only.
 
 ### Docker container metrics (opt-in)
@@ -58,7 +62,7 @@ Add `--enable-docker` to also report container names and statuses via the Docker
 ## How it works
 
 - A **systemd timer** fires the agent every minute (`OnUnitActiveSec=1min`, with a 30 s randomized delay).
-- The agent **self-throttles**: it pushes only when the server-provided interval has elapsed (min 60 s, default 300 s), so the 1-minute tick is cheap no-op when nothing is due. A file lock prevents overlapping runs.
+- The agent **self-throttles**: it pushes only when the server-provided interval has elapsed (min 60 s, default 300 s), so the 1-minute tick is a cheap no-op when nothing is due. A file lock prevents overlapping runs.
 - Every push doubles as a **config pull**: the response carries the effective checks (interval, thresholds, expected ports, expected containers), which the agent validates and persists. Change the frequency in the panel and the agent aligns within one interval.
 - The **server** does the alerting: if no push arrives within the check interval plus its grace period, the liveness check fails and you get notified.
 
