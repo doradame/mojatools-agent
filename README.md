@@ -1,6 +1,6 @@
 # mojatools-agent
 
-[![ci](https://github.com/mojatools/mojatools-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mojatools/mojatools-agent/actions/workflows/ci.yml)
+[![ci](https://github.com/doradame/mojatools-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/doradame/mojatools-agent/actions/workflows/ci.yml)
 
 The inside-out liveness and metrics agent for the [mojatools](https://api.mojalab.com) monitoring platform.
 
@@ -32,7 +32,7 @@ The agent is designed to be small enough to audit in one sitting:
 The mojatools admin panel (**Agents → Install**) generates a one-liner for your host, with the enrollment token and the expected SHA-256 of the pinned agent release already filled in:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojatools/mojatools-agent/v1.0.0/install.sh | sudo sh -s -- \
+curl -fsSL https://raw.githubusercontent.com/doradame/mojatools-agent/v1.0.1/install.sh | sudo sh -s -- \
   --server https://api.mojalab.com \
   --enroll-token <ONE_TIME_TOKEN> \
   --expected-sha256 <SHA256_FROM_PANEL>
