@@ -1,0 +1,10 @@
+[Unit]
+Description=run mojatools agent every minute (self-throttled by server config)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=mojatools inside-out monitoring agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mojatools-agent
+ExecStart=/usr/bin/python3 /opt/mojatools-agent/mojatools_agent.py run
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/mojatools-agent
