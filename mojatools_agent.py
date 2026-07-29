@@ -270,32 +270,35 @@ def validate_server_config(data):
     for c in checks[:20]:
         if not isinstance(c, dict):
             raise ValueError("server config: check entry must be an object")
-        ctype = c.get("type")
-        if ctype not in ("liveness_light", "liveness_full"):
-            raise ValueError(f"server config: unknown check type {ctype!r}")
-        entry = {
-            "check_id": int(c["check_id"]),
-            "type": ctype,
-            "interval_seconds": max(MIN_INTERVAL_S, min(
-                int(c.get("interval_seconds", DEFAULT_INTERVAL_S)), MAX_INTERVAL_S)),
-            "thresholds": {},
-            "expected_ports": [],
-            "expected_containers": [],
-        }
-        thresholds = c.get("thresholds") or {}
-        if not isinstance(thresholds, dict):
-            raise ValueError("server config: thresholds must be an object")
-        for k in ("disk_percent", "ram_percent", "cpu_percent", "load_per_core"):
-            if k in thresholds:
-                entry["thresholds"][k] = float(thresholds[k])
-        ports = c.get("expected_ports") or []
-        if not all(isinstance(p, int) and 1 <= p <= 65535 for p in ports):
-            raise ValueError("server config: expected_ports must be valid ports")
-        entry["expected_ports"] = sorted(set(ports))[:100]
-        names = c.get("expected_containers") or []
-        if not all(isinstance(n, str) and 0 < len(n) <= 128 for n in names):
-            raise ValueError("server config: expected_containers must be names")
-        entry["expected_containers"] = list(names)[:50]
+        try:
+            ctype = c.get("type")
+            if ctype not in ("liveness_light", "liveness_full"):
+                raise ValueError(f"server config: unknown check type {ctype!r}")
+            entry = {
+                "check_id": int(c["check_id"]),
+                "type": ctype,
+                "interval_seconds": max(MIN_INTERVAL_S, min(
+                    int(c.get("interval_seconds", DEFAULT_INTERVAL_S)), MAX_INTERVAL_S)),
+                "thresholds": {},
+                "expected_ports": [],
+                "expected_containers": [],
+            }
+            thresholds = c.get("thresholds") or {}
+            if not isinstance(thresholds, dict):
+                raise ValueError("server config: thresholds must be an object")
+            for k in ("disk_percent", "ram_percent", "cpu_percent", "load_per_core"):
+                if k in thresholds:
+                    entry["thresholds"][k] = float(thresholds[k])
+            ports = c.get("expected_ports") or []
+            if not all(isinstance(p, int) and 1 <= p <= 65535 for p in ports):
+                raise ValueError("server config: expected_ports must be valid ports")
+            entry["expected_ports"] = sorted(set(ports))[:100]
+            names = c.get("expected_containers") or []
+            if not all(isinstance(n, str) and 0 < len(n) <= 128 for n in names):
+                raise ValueError("server config: expected_containers must be names")
+            entry["expected_containers"] = list(names)[:50]
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"server config: malformed check entry: {e}")
         clean["checks"].append(entry)
     return clean
 
@@ -321,6 +324,10 @@ def should_push(state, interval_s, now=None):
         last_dt = datetime.fromisoformat(last)
     except ValueError:
         return True
+    if last_dt.tzinfo is None and now.tzinfo is not None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    elif now.tzinfo is None and last_dt.tzinfo is not None:
+        now = now.replace(tzinfo=timezone.utc)
     return (now - last_dt).total_seconds() >= interval_s
 
 
