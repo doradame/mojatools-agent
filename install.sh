@@ -3,6 +3,7 @@
 # SHA256, installs as an unprivileged system user, enrolls, and sets up a
 # systemd timer. Requires root. POSIX sh, no bashisms.
 set -eu
+umask 022
 
 AGENT_USER="mojatools-agent"
 INSTALL_DIR="/opt/mojatools-agent"
@@ -13,6 +14,10 @@ SERVER=""
 ENROLL_TOKEN=""
 EXPECTED_SHA256=""
 ENABLE_DOCKER=0
+
+usage() {
+    echo "usage: install.sh --server URL --expected-sha256 HEX [--enroll-token T] [--enable-docker]" >&2
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,13 +31,34 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$(id -u)" = "0" ] || { echo "run as root (sudo)" >&2; exit 1; }
-[ -n "$SERVER" ] && [ -n "$ENROLL_TOKEN" ] && [ -n "$EXPECTED_SHA256" ] || {
-    echo "usage: install.sh --server URL --enroll-token T --expected-sha256 HEX [--enable-docker]" >&2
+
+ALREADY_ENROLLED=0
+if [ -f "$CONFIG_DIR/agent.json" ] && [ -f "$CONFIG_DIR/token" ]; then
+    ALREADY_ENROLLED=1
+fi
+
+if [ -z "$SERVER" ] || [ -z "$EXPECTED_SHA256" ]; then
+    usage
     exit 2
+fi
+if [ "$ALREADY_ENROLLED" = "0" ] && [ -z "$ENROLL_TOKEN" ]; then
+    echo "error: --enroll-token is required (not currently enrolled)" >&2
+    usage
+    exit 2
+fi
+
+[ -x /usr/bin/python3 ] || {
+    echo "python3 at /usr/bin/python3 is required (install python3 via your distro package manager)" >&2
+    exit 1
 }
-command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemd is required" >&2; exit 1; }
+
+if [ -x /usr/sbin/nologin ]; then
+    NOLOGIN=/usr/sbin/nologin
+else
+    NOLOGIN=/sbin/nologin
+fi
 
 echo "==> downloading agent from $AGENT_URL"
 TMP_AGENT="$(mktemp)"
@@ -47,7 +73,9 @@ fi
 echo "==> checksum OK"
 
 if ! id "$AGENT_USER" >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$AGENT_USER"
+    useradd --system --no-create-home --shell "$NOLOGIN" "$AGENT_USER"
+else
+    usermod -s "$NOLOGIN" "$AGENT_USER"
 fi
 if [ "$ENABLE_DOCKER" = "1" ]; then
     echo "WARNING: adding $AGENT_USER to the docker group. The docker group is"
@@ -57,16 +85,21 @@ if [ "$ENABLE_DOCKER" = "1" ]; then
 fi
 
 install -d -m 0755 "$INSTALL_DIR"
-install -d -m 0750 -o root -g "$AGENT_USER" "$CONFIG_DIR"
+install -d -m 0770 -o root -g "$AGENT_USER" "$CONFIG_DIR"
 install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_USER" "$STATE_DIR"
 install -m 0755 -o root -g root "$TMP_AGENT" "$INSTALL_DIR/mojatools_agent.py"
 
-HOSTNAME="$(hostname)"
-echo "==> enrolling $HOSTNAME on $SERVER"
-su -s /bin/sh "$AGENT_USER" -c \
-    "python3 $INSTALL_DIR/mojatools_agent.py enroll --server '$SERVER' --enroll-token '$ENROLL_TOKEN' --hostname '$HOSTNAME'"
-chmod 0640 "$CONFIG_DIR/agent.json"
-chown root:"$AGENT_USER" "$CONFIG_DIR/agent.json"
+if [ "$ALREADY_ENROLLED" = "1" ]; then
+    echo "==> already enrolled, skipping enrollment (upgrade mode)"
+else
+    HOSTNAME="$(hostname)"
+    echo "==> enrolling $HOSTNAME on $SERVER"
+    su -s /bin/sh "$AGENT_USER" -c \
+        'exec python3 /opt/mojatools-agent/mojatools_agent.py enroll --server "$1" --enroll-token "$2" --hostname "$3"' \
+        sh "$SERVER" "$ENROLL_TOKEN" "$HOSTNAME"
+    chmod 0640 "$CONFIG_DIR/agent.json"
+    chown root:"$AGENT_USER" "$CONFIG_DIR/agent.json"
+fi
 
 echo "==> installing systemd units"
 # (the two unit files are embedded below and written verbatim)
